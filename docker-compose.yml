@@ -1,49 +1,64 @@
-version: '3.8'
-
-x-base-config: &base-config
-  ports:
-    - "11235:11235"
-  env_file:
-    - .llm.env
-  environment:
-    - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-    - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-    - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-    - GROQ_API_KEY=${GROQ_API_KEY:-}
-    - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
-    - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
-    - GEMINI_API_TOKEN=${GEMINI_API_TOKEN:-}
-    - REDIS_URL=redis://redis:6379/0   # ✅ Correct syntax
-  volumes:
-    - /dev/shm:/dev/shm
-  deploy:
-    resources:
-      limits:
-        memory: 4G
-      reservations:
-        memory: 1G
-  restart: unless-stopped
-  healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
-    interval: 30s
-    timeout: 10s
-    retries: 3
-    start_period: 40s
-  user: "appuser"
+version: "3.8"
 
 services:
   crawl4ai:
+    # ───────────────────────────────────────────────────────────────
+    # 1)  By default Coolify will PULL the published image
+    #     • IMAGE / TAG env-vars let you override it at deploy time
+    # 2)  If you want to build from source instead, just keep the
+    #     build: block — Coolify will build automatically.
+    # ───────────────────────────────────────────────────────────────
     image: ${IMAGE:-unclecode/crawl4ai:${TAG:-latest}}
+
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        INSTALL_TYPE: ${INSTALL_TYPE:-default}
-        ENABLE_GPU: ${ENABLE_GPU:-false}
-    <<: *base-config
+        INSTALL_TYPE: ${INSTALL_TYPE:-default}   # default | all | torch | transformer
+        ENABLE_GPU:   ${ENABLE_GPU:-false}
 
-  redis:  # ✅ Properly declared as its own service
-    image: redis:alpine
+    # ───────────────────────────────────────────────────────────────
+    # NETWORK / PORTS
+    # ───────────────────────────────────────────────────────────────
     ports:
-      - "6379:6379"
+      - "11235:11235"        # FastAPI / Gunicorn
+    shm_size: 1g             # playwright/Chromium needs this
+
+    # ───────────────────────────────────────────────────────────────
+    # ENVIRONMENT
+    #   • .llm.env holds your API keys (OpenAI, Anthropic, etc.)
+    #   • REDIS_URL -> points to the Redis server that the image
+    #                  starts *inside* the same container.
+    # ───────────────────────────────────────────────────────────────
+    env_file:
+      - .llm.env              # create from .llm.env.example
+
+    environment:
+      OPENAI_API_KEY:      ${OPENAI_API_KEY:-}
+      DEEPSEEK_API_KEY:    ${DEEPSEEK_API_KEY:-}
+      ANTHROPIC_API_KEY:   ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY:        ${GROQ_API_KEY:-}
+      TOGETHER_API_KEY:    ${TOGETHER_API_KEY:-}
+      MISTRAL_API_KEY:     ${MISTRAL_API_KEY:-}
+      GEMINI_API_TOKEN:    ${GEMINI_API_TOKEN:-}
+      REDIS_URL:           redis://localhost:6379/0   # ← important
+
+    # ───────────────────────────────────────────────────────────────
+    # MISC
+    # ───────────────────────────────────────────────────────────────
+    volumes:
+      - /dev/shm:/dev/shm        # speeds up Chromium
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+    user: "appuser"
