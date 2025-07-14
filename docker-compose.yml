@@ -1,50 +1,45 @@
 version: "3.8"
 
 ###############################################################################
-# Crawl4AI – one container, Redis bundled inside the image
-# If you simply replace the whole Compose area in Coolify with this block,
-# hit  Save  → Redeploy, you should get a healthy service on
-#    https://crawl.wearevoxai.com
+# Crawl4AI + bundled Redis, exposed through Traefik
+# - stick this into the “Docker Compose Content (raw)” field
+# - make sure you have a .llm.env file (OPENAI_API_KEY, etc.) in Coolify
+# - press  Save  ➜  Redeploy
 ###############################################################################
 services:
   crawl4ai:
-    # pin the image so you’re not chasing the moving target called "latest"
-    image: unclecode/crawl4ai:0.7.0-r1          # current RC (stable = 0.6.0)
+    image: unclecode/crawl4ai:0.7.0-r1          # ← pinned, reproducible build
 
-    # ───────── OPTIONAL: build from your own fork ─────────
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
-    #   args:
-    #     INSTALL_TYPE: default                 # default | all | torch | transformer
-    #     ENABLE_GPU:   "false"                 # "true" only on an NVIDIA-enabled host
-    # ------------------------------------------------------
+    # ── playwright / Chromium needs shared-memory ────────────────────────────
+    shm_size: 1g
 
-    shm_size: 1g                                # playwright / Chromium needs this
+    # ── FastAPI / Gunicorn inside the container listens on 11235 ────────────
     ports:
-      - "11235:11235"                           # FastAPI / Gunicorn
+      - "11235:11235"
 
-    # Put the file **.llm.env** next to your compose file in Coolify
-    # (Settings → Files → Add New) – it only needs the keys you actually use.
+    # ── your LLM keys live in a separate secrets file ───────────────────────
     env_file:
       - .llm.env
 
     environment:
-      # If a key is absent in .llm.env the empty fallback is used – fine.
-      OPENAI_API_KEY:    ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GROQ_API_KEY:      ${GROQ_API_KEY:-}
-      REDIS_URL:         redis://localhost:6379/0   # ← matches the Redis that ships
-      LOG_LEVEL:         info                       # "debug" if you want verbose traces
+      OPENAI_API_KEY:     ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY:  ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY:       ${GROQ_API_KEY:-}
+      DEEPSEEK_API_KEY:   ${DEEPSEEK_API_KEY:-}
+      TOGETHER_API_KEY:   ${TOGETHER_API_KEY:-}
+      MISTRAL_API_KEY:    ${MISTRAL_API_KEY:-}
+      GEMINI_API_TOKEN:   ${GEMINI_API_TOKEN:-}
+      REDIS_URL:          redis://localhost:6379/0
+      LOG_LEVEL:          info                    # switch to “debug” if needed
 
     volumes:
-      - /dev/shm:/dev/shm                          # Chromium speed-up
+      - /dev/shm:/dev/shm                         # speed-up for Chromium
 
     restart: unless-stopped
 
-    # Coolify checks this to decide whether the app is “healthy”
+    # Coolify / Traefik health probe
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:11235/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -56,4 +51,14 @@ services:
           memory: 4G
         reservations:
           memory: 1G
+
+    # ---------- connect to Traefik’s overlay network ----------
+    networks:
+      - coolify
+
     user: "appuser"
+
+# global section: declare the external network so Compose doesn’t try to create it
+networks:
+  coolify:
+    external: true
