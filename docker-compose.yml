@@ -1,60 +1,55 @@
 version: "3.8"
 
+###############################################################################
+# Crawl4AI – one container, Redis bundled inside the image
+# If you simply replace the whole Compose area in Coolify with this block,
+# hit  Save  → Redeploy, you should get a healthy service on
+#    https://crawl.wearevoxai.com
+###############################################################################
 services:
   crawl4ai:
-    # ───────────────────────────────────────────────────────────────
-    # 1)  By default Coolify will PULL the published image
-    #     • IMAGE / TAG env-vars let you override it at deploy time
-    # 2)  If you want to build from source instead, just keep the
-    #     build: block — Coolify will build automatically.
-    # ───────────────────────────────────────────────────────────────
-    image: ${IMAGE:-unclecode/crawl4ai:${TAG:-latest}}
+    # pin the image so you’re not chasing the moving target called "latest"
+    image: unclecode/crawl4ai:0.7.0-r1          # current RC (stable = 0.6.0)
 
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        INSTALL_TYPE: ${INSTALL_TYPE:-default}   # default | all | torch | transformer
-        ENABLE_GPU:   ${ENABLE_GPU:-false}
+    # ───────── OPTIONAL: build from your own fork ─────────
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     INSTALL_TYPE: default                 # default | all | torch | transformer
+    #     ENABLE_GPU:   "false"                 # "true" only on an NVIDIA-enabled host
+    # ------------------------------------------------------
 
-    # ───────────────────────────────────────────────────────────────
-    # NETWORK / PORTS
-    # ───────────────────────────────────────────────────────────────
+    shm_size: 1g                                # playwright / Chromium needs this
     ports:
-      - "11235:11235"        # FastAPI / Gunicorn
-    shm_size: 1g             # playwright/Chromium needs this
+      - "11235:11235"                           # FastAPI / Gunicorn
 
-    # ───────────────────────────────────────────────────────────────
-    # ENVIRONMENT
-    #   • .llm.env holds your API keys (OpenAI, Anthropic, etc.)
-    #   • REDIS_URL -> points to the Redis server that the image
-    #                  starts *inside* the same container.
-    # ───────────────────────────────────────────────────────────────
+    # Put the file **.llm.env** next to your compose file in Coolify
+    # (Settings → Files → Add New) – it only needs the keys you actually use.
     env_file:
-      - .llm.env              # create from .llm.env.example
+      - .llm.env
 
     environment:
-      OPENAI_API_KEY:      ${OPENAI_API_KEY:-}
-      DEEPSEEK_API_KEY:    ${DEEPSEEK_API_KEY:-}
-      ANTHROPIC_API_KEY:   ${ANTHROPIC_API_KEY:-}
-      GROQ_API_KEY:        ${GROQ_API_KEY:-}
-      TOGETHER_API_KEY:    ${TOGETHER_API_KEY:-}
-      MISTRAL_API_KEY:     ${MISTRAL_API_KEY:-}
-      GEMINI_API_TOKEN:    ${GEMINI_API_TOKEN:-}
-      REDIS_URL:           redis://localhost:6379/0   # ← important
+      # If a key is absent in .llm.env the empty fallback is used – fine.
+      OPENAI_API_KEY:    ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY:      ${GROQ_API_KEY:-}
+      REDIS_URL:         redis://localhost:6379/0   # ← matches the Redis that ships
+      LOG_LEVEL:         info                       # "debug" if you want verbose traces
 
-    # ───────────────────────────────────────────────────────────────
-    # MISC
-    # ───────────────────────────────────────────────────────────────
     volumes:
-      - /dev/shm:/dev/shm        # speeds up Chromium
+      - /dev/shm:/dev/shm                          # Chromium speed-up
+
     restart: unless-stopped
+
+    # Coolify checks this to decide whether the app is “healthy”
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:11235/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
       start_period: 40s
+
     deploy:
       resources:
         limits:
